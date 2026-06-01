@@ -5,4 +5,5 @@ pycoloquinte/coloquinte_pybind.egg-info/
 pycoloquinte/dist/
 pycoloquinte/*.png
 pycoloquinte/*.webp
+pycoloquinte/*.data
 .vscode

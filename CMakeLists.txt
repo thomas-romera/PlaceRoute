@@ -51,6 +51,13 @@ ELSE()
 ENDIF()
 
 set_target_properties(coloquinte PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+
+target_compile_options(coloquinte PRIVATE
+    $<$<CONFIG:Release>:-O2 -g -fno-omit-frame-pointer>
+    $<$<CONFIG:RelWithDebInfo>:-fno-omit-frame-pointer>
+    $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+)
+
 target_compile_features(coloquinte PUBLIC cxx_std_17)
 target_link_libraries(coloquinte
   PRIVATE
