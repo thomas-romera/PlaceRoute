@@ -48,6 +48,42 @@ Or using Meson:
 meson setup build; meson compile -C build; meson test -C build
 ```
 
+### C++ build for Python usage
+
+If you want to build the C++ library without static `Boost` include and use it with the Python benchmark suite, use the following:
+``` bash
+cmake -B build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DBUILD_PYCOLOQUINTE=ON \
+      -DBoost_USE_STATIC_LIBS=OFF
+cmake --build build -j$(nproc)
+```
+
+Export the location where the `pybind.so` library was built:
+``` bash
+export PYTHONPATH=PlaceRoute/build/pycoloquinte/
+```
+
+The `coloquinte.py` benchmark script can then be run and will import the compiled library:
+``` bash
+python3 coloquinte.py --save-images=adaptec1 --image-extension=png --save-all-images PlaceRouteBenchmarks/ISPD06/adaptec1/
+```
+
+### C++ build for `perf` benchmarks
+
+`perf` requires compiling with debug symbols and frame pointers. The following `cmake` options will activate them:
+```bash
+cmake -B build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DBUILD_PYCOLOQUINTE=ON \
+      -DBoost_USE_STATIC_LIBS=OFF \
+      -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer"
+cmake --build build -j$(nproc)
+```
+
 ## Benchmarks
 
 Coloquinte is tested on the [ISPD06 benchmark suite](https://dl.acm.org/doi/10.1145/1123008.1123042). Below is the reported half-perimeter wirelength on these benchmarks (x10<sup>7</sup>) for various effort parameters.
