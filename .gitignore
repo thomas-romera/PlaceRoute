@@ -3,4 +3,6 @@ pycoloquinte/__pycache__
 pycoloquinte/coloquinte.egg-info/
 pycoloquinte/coloquinte_pybind.egg-info/
 pycoloquinte/dist/
+pycoloquinte/*.png
+pycoloquinte/*.webp
 .vscode
