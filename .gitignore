@@ -6,4 +6,5 @@ pycoloquinte/dist/
 pycoloquinte/*.png
 pycoloquinte/*.webp
 pycoloquinte/*.data
+pycoloquinte/*.csv
 .vscode

@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <iostream>
 #include <numeric>
+#include <sstream>
 #include <utility>
 
 #include "density_legalizer.hpp"
@@ -86,6 +87,9 @@ GlobalPlacer::GlobalPlacer(Circuit &circuit, const ColoquinteParameters &params)
     legParams.quadraticPenaltyFactor = rlp.quadraticPenalty / dist;
   }
   leg_.setParams(legParams);
+
+  csvFile_.open("coloquinte_timing.csv");
+  csvFile_ << "step,phase,sub_step,time_ms\n";
 }
 
 void GlobalPlacer::exportPlacement(Circuit &circuit) const {
@@ -158,18 +162,27 @@ void GlobalPlacer::run() {
   int firstStep = params_.global.nbInitialSteps + 1;
   for (step_ = firstStep; step_ <= params_.global.maxNbSteps; ++step_) {
     std::cout << "#" << step_ << ":" << std::flush;
+
+    auto ubStart = std::chrono::steady_clock::now();
     runUB();
+    auto ubEnd = std::chrono::steady_clock::now();
+    std::chrono::duration<float, std::milli> ubDur = ubEnd - ubStart;
+    csvFile_ << std::fixed << std::setprecision(3)
+             << step_ << ",UB,total," << ubDur.count() << "\n";
+
     ub = valueUB();
     std::cout << std::defaultfloat << std::setprecision(4) << "\tUB " << ub;
 
     float dist = leg_.meanDistance();
     std::cout << std::fixed << std::setprecision(1) << "\tDist " << dist / averageCellLength_;
+    std::cout << std::fixed << std::setprecision(0) << "\trunUB " << ubDur.count() << "ms";
     std::cout << std::flush;
 
     float gap = (ub - lb) / ub;
     // Stop if distance or the difference between LB and UB is small enough
     if (gap < params_.global.gapTolerance || dist < distanceTolerance()) {
       std::cout << std::endl;
+      std::cout << "    " << ubTimingDetail_ << "\n";
       break;
     }
     if (dist < nextPenaltyUpdateDistance) {
@@ -181,10 +194,22 @@ void GlobalPlacer::run() {
         std::cout << "#" << step_ << ":\t........\t........";
         std::cout << std::flush;
       }
+
+      auto lbStart = std::chrono::steady_clock::now();
       runLB();
+      auto lbEnd = std::chrono::steady_clock::now();
+      std::chrono::duration<float, std::milli> lbDur = lbEnd - lbStart;
+      csvFile_ << std::fixed << std::setprecision(3)
+               << step_ << ",LB,total," << lbDur.count() << "\n";
+
       lb = valueLB();
-      std::cout << std::defaultfloat << std::setprecision(4) << "\tLB " << lb
+      std::cout << std::defaultfloat << std::setprecision(4) << "\tLB " << lb;
+      std::cout << std::fixed << std::setprecision(0) << "\trunLB " << lbDur.count() << "ms"
                 << std::endl;
+      if (i == 0) {
+        std::cout << "    " << ubTimingDetail_ << "\n";
+      }
+      std::cout << "    " << lbTimingDetail_ << "\n";
     }
     penalty_ *= params_.global.penalty.updateFactor;
     penaltyCutoffDistance_ *= params_.global.penalty.cutoffDistanceUpdateFactor;
@@ -209,16 +234,33 @@ void GlobalPlacer::runInitialLB() {
       params_.global.continuousModel.conjugateGradientErrorTolerance;
   params.maxNbIterations =
       params_.global.continuousModel.maxNbConjugateGradientSteps;
+
+  auto starStart = std::chrono::steady_clock::now();
   xPlacementLB_ = xtopo_.solveStar(params);
   yPlacementLB_ = ytopo_.solveStar(params);
+  auto starEnd = std::chrono::steady_clock::now();
+  std::chrono::duration<float, std::milli> starDur = starEnd - starStart;
+
   std::cout << std::defaultfloat << std::setprecision(4) << "#0:\tLB "
-            << valueLB() << std::endl;
+            << valueLB()
+            << std::fixed << std::setprecision(0) << "\trunInitialLB " << starDur.count() << "ms"
+            << std::endl;
+  csvFile_ << std::fixed << std::setprecision(3)
+           << 0 << ",initialLB,solveStar," << starDur.count() << "\n";
   callback(PlacementStep::LowerBound, xPlacementLB_, yPlacementLB_);
   for (step_ = 1; step_ <= params_.global.nbInitialSteps; ++step_) {
+    auto lbStart = std::chrono::steady_clock::now();
     xPlacementLB_ = xtopo_.solve(xPlacementLB_, params);
     yPlacementLB_ = ytopo_.solve(yPlacementLB_, params);
+    auto lbEnd = std::chrono::steady_clock::now();
+    std::chrono::duration<float, std::milli> lbDur = lbEnd - lbStart;
+
     std::cout << std::defaultfloat << std::setprecision(4) << "#" << step_
-              << ":\tLB " << valueLB() << std::endl;
+              << ":\tLB " << valueLB()
+              << std::fixed << std::setprecision(0) << "\trunInitialLB " << lbDur.count() << "ms"
+              << std::endl;
+    csvFile_ << std::fixed << std::setprecision(3)
+             << step_ << ",initialLB,solve," << lbDur.count() << "\n";
     callback(PlacementStep::LowerBound, xPlacementLB_, yPlacementLB_);
   }
   // Simplify blending solutions by having a UB immediately
@@ -237,14 +279,18 @@ void GlobalPlacer::runLB() {
   params.maxNbIterations =
       params_.global.continuousModel.maxNbConjugateGradientSteps;
 
+  auto t0 = std::chrono::steady_clock::now();
+
   // Compute the per-cell penalty with randomization
   std::vector<float> penalty = computeIterationPerCellPenalty();
+  auto t1 = std::chrono::steady_clock::now();
 
   float w = params_.global.penalty.targetBlending;
   std::vector<float> xTarget = blendPlacement(xPlacementLB_, xPlacementUB_, w);
   std::vector<float> yTarget = blendPlacement(yPlacementLB_, yPlacementUB_, w);
+  auto t2 = std::chrono::steady_clock::now();
 
-  // Solve the continuous model (x and y independently)
+  // Solve the continuous model (x and y independently) — calls Eigen inside
   std::future<std::vector<float> > x =
       std::async(std::launch::async, &NetModel::solveWithPenalty, &xtopo_,
                  xPlacementLB_, xTarget, penalty, params);
@@ -253,20 +299,68 @@ void GlobalPlacer::runLB() {
                  yPlacementLB_, yTarget, penalty, params);
   xPlacementLB_ = x.get();
   yPlacementLB_ = y.get();
+  auto t3 = std::chrono::steady_clock::now();
+
   callback(PlacementStep::LowerBound, xPlacementLB_, yPlacementLB_);
+  auto t4 = std::chrono::steady_clock::now();
+
+  using ms = std::chrono::duration<float, std::milli>;
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(1)
+      << "[runLB]"
+      << " penalty " << ms(t1 - t0).count() << "ms"
+      << " | blend " << ms(t2 - t1).count() << "ms"
+      << " | solveXY " << ms(t3 - t2).count() << "ms"
+      << " | callback " << ms(t4 - t3).count() << "ms";
+  lbTimingDetail_ = oss.str();
+
+  csvFile_ << std::fixed << std::setprecision(3)
+           << step_ << ",LB,penalty," << ms(t1 - t0).count() << "\n"
+           << step_ << ",LB,blend," << ms(t2 - t1).count() << "\n"
+           << step_ << ",LB,solveXY," << ms(t3 - t2).count() << "\n"
+           << step_ << ",LB,callback," << ms(t4 - t3).count() << "\n";
 }
 
 void GlobalPlacer::runUB() {
+  auto t0 = std::chrono::steady_clock::now();
+
   updateCellSizes();
+  auto t1 = std::chrono::steady_clock::now();
+
   float w = params_.global.roughLegalization.targetBlending;
   std::vector<float> xTarget = blendPlacement(xPlacementLB_, xPlacementUB_, w);
   std::vector<float> yTarget = blendPlacement(yPlacementLB_, yPlacementUB_, w);
   leg_.updateCellTargetX(xTarget);
   leg_.updateCellTargetY(yTarget);
+  auto t2 = std::chrono::steady_clock::now();
+
   leg_.run();
+  auto t3 = std::chrono::steady_clock::now();
+
   xPlacementUB_ = leg_.spreadCoordX(xTarget);
   yPlacementUB_ = leg_.spreadCoordY(yTarget);
+  auto t4 = std::chrono::steady_clock::now();
+
   callback(PlacementStep::UpperBound, xPlacementUB_, yPlacementUB_);
+  auto t5 = std::chrono::steady_clock::now();
+
+  using ms = std::chrono::duration<float, std::milli>;
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(1)
+      << "[runUB]"
+      << " updateCellSizes " << ms(t1 - t0).count() << "ms"
+      << " | blend " << ms(t2 - t1).count() << "ms"
+      << " | leg.run " << ms(t3 - t2).count() << "ms"
+      << " | spreadCoord " << ms(t4 - t3).count() << "ms"
+      << " | callback " << ms(t5 - t4).count() << "ms";
+  ubTimingDetail_ = oss.str();
+
+  csvFile_ << std::fixed << std::setprecision(3)
+           << step_ << ",UB,updateCellSizes," << ms(t1 - t0).count() << "\n"
+           << step_ << ",UB,blend," << ms(t2 - t1).count() << "\n"
+           << step_ << ",UB,leg_run," << ms(t3 - t2).count() << "\n"
+           << step_ << ",UB,spreadCoord," << ms(t4 - t3).count() << "\n"
+           << step_ << ",UB,callback," << ms(t5 - t4).count() << "\n";
 }
 
 void GlobalPlacer::callback(PlacementStep step,

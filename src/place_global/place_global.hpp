@@ -1,6 +1,8 @@
 #pragma once
 
+#include <fstream>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "coloquinte.hpp"
@@ -154,6 +156,13 @@ class GlobalPlacer {
   // Only for callbacks
   Circuit &circuit_;
   std::optional<PlacementCallback> callback_;
+
+  // Sub-step timing detail populated by runUB/runLB, printed in run()
+  std::string ubTimingDetail_;
+  std::string lbTimingDetail_;
+
+  // CSV export for timing analysis
+  std::ofstream csvFile_;
 };
 
 }  // namespace coloquinte
