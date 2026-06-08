@@ -216,6 +216,7 @@ void GlobalPlacer::run() {
     approximationDistance_ *=
         params_.global.continuousModel.approximationDistanceUpdateFactor;
   }
+  ++step_;  // final UB pass gets its own step number to avoid CSV duplicates
   runUB();
 }
 
