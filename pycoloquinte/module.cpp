@@ -78,6 +78,12 @@ PYBIND11_MODULE(coloquinte_pybind, m) {
       .value("LightStar", NetModelOption::LightStar)
       .export_values();
 
+  py::enum_<DensificationMode>(m, "DensificationMode")
+      .value("Disabled", DensificationMode::Disabled)
+      .value("Uniform", DensificationMode::Uniform)
+      .value("Targeted", DensificationMode::Targeted)
+      .export_values();
+
   py::enum_<PlacementStep>(m, "PlacementStep")
       .value("LowerBound", PlacementStep::LowerBound)
       .value("UpperBound", PlacementStep::UpperBound)
@@ -175,6 +181,24 @@ Construct the parameters
       .def("__str__", &PenaltyParameters::toString)
       .def("__repr__", &PenaltyParameters::toString);
 
+  py::class_<DensificationParameters>(m, "DensificationParameters")
+      .def(py::init<int>(), R"pbdoc(
+Construct the parameters
+
+:param int effort: Effort level
+)pbdoc",
+           py::arg("effort") = 3)
+      .def_readwrite("mode", &DensificationParameters::mode)
+      .def_readwrite("target_density",
+                     &DensificationParameters::targetDensity)
+      .def_readwrite("max_factor", &DensificationParameters::maxFactor)
+      .def_readwrite("nb_ramp_steps", &DensificationParameters::nbRampSteps)
+      .def_readwrite("targeted_strength",
+                     &DensificationParameters::targetedStrength)
+      .def("check", &DensificationParameters::check)
+      .def("__str__", &DensificationParameters::toString)
+      .def("__repr__", &DensificationParameters::toString);
+
   py::class_<GlobalPlacerParameters>(m, "GlobalPlacerParameters")
       .def(py::init<int>(), R"pbdoc(
 Construct the parameters
@@ -187,6 +211,8 @@ Construct the parameters
       .def_readwrite("continuous_model",
                      &GlobalPlacerParameters::continuousModel)
       .def_readwrite("penalty", &GlobalPlacerParameters::penalty)
+      .def_readwrite("densification",
+                     &GlobalPlacerParameters::densification)
       .def_readwrite("max_nb_steps", &GlobalPlacerParameters::maxNbSteps)
       .def_readwrite("nb_initial_steps",
                      &GlobalPlacerParameters::nbInitialSteps)

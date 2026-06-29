@@ -131,6 +131,35 @@ class GlobalPlacer {
    */
   void updateNets();
 
+  /**
+   * @brief Snapshot the true cell widths at the start of placement, and the
+   * baseline density figures used by de-densification
+   */
+  void initDensification();
+
+  /**
+   * @brief Apply the de-densification strategy for the current step: inflate
+   * the cell widths (relative to the snapshot) so the next rough-legalization
+   * step leaves more whitespace. No-op unless densification is enabled.
+   */
+  void applyDensification();
+
+  /**
+   * @brief Per-cell inflation factors for the uniform strategy
+   */
+  std::vector<float> uniformExpansion(float ramp) const;
+
+  /**
+   * @brief Per-cell inflation factors for the targeted strategy, from the local
+   * density of the lower-bound (wirelength) placement
+   */
+  std::vector<float> targetedExpansion(float ramp) const;
+
+  /**
+   * @brief Restore the true cell widths captured by initDensification
+   */
+  void restoreBaseWidths();
+
  private:
   DensityLegalizer leg_;
   NetModel xtopo_;
@@ -150,6 +179,11 @@ class GlobalPlacer {
   float penaltyCutoffDistance_;
   float approximationDistance_;
   std::mt19937 rgen_;
+
+  // De-densification state
+  std::vector<int> baseCellWidth_;  ///< true cell widths captured at start
+  double baseDensity_;              ///< movable area / placement capacity
+  bool densificationActive_;        ///< widths currently inflated?
 
   // Only for callbacks
   Circuit &circuit_;

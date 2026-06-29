@@ -232,7 +232,8 @@ ContinuousModelParameters::ContinuousModelParameters(
 }
 
 GlobalPlacerParameters::GlobalPlacerParameters(int effort)
-    : continuousModel(effort), roughLegalization(effort), penalty(effort) {
+    : continuousModel(effort), roughLegalization(effort), penalty(effort),
+      densification(effort) {
   maxNbSteps = 400;
   nbInitialSteps = 0;
   nbStepsBeforeRoughLegalization = 1;
@@ -265,6 +266,50 @@ std::string GlobalPlacerParameters::toString() const {
      << "\n\tExport blending: " << exportBlending;
   ss << std::endl;
   return ss.str();
+}
+
+DensificationParameters::DensificationParameters(
+    [[maybe_unused]] int effort) {
+  // Disabled by default: existing placement behaviour is unchanged unless the
+  // user explicitly turns de-densification on.
+  mode = DensificationMode::Disabled;
+  targetDensity = 0.9;
+  maxFactor = 2.0;
+  nbRampSteps = 10;
+  targetedStrength = 1.0;
+}
+
+std::string DensificationParameters::toString() const {
+  std::stringstream ss;
+  const char *modeName = mode == DensificationMode::Uniform   ? "Uniform"
+                         : mode == DensificationMode::Targeted ? "Targeted"
+                                                               : "Disabled";
+  ss << "Densification params:"
+     << "\n\tMode: " << modeName
+     << "\n\tTarget density: " << targetDensity
+     << "\n\tMax factor: " << maxFactor
+     << "\n\tRamp steps: " << nbRampSteps
+     << "\n\tTargeted strength: " << targetedStrength;
+  ss << std::endl;
+  return ss.str();
+}
+
+void DensificationParameters::check() const {
+  if (targetDensity <= 0.0 || targetDensity > 1.0) {
+    throw std::runtime_error(
+        "Densification target density should be between 0 and 1");
+  }
+  if (maxFactor < 1.0) {
+    throw std::runtime_error("Densification max factor should be at least 1");
+  }
+  if (nbRampSteps < 1) {
+    throw std::runtime_error(
+        "Densification ramp steps should be at least 1");
+  }
+  if (targetedStrength < 0.0) {
+    throw std::runtime_error(
+        "Densification targeted strength should be non-negative");
+  }
 }
 
 DetailedPlacerParameters::DetailedPlacerParameters(int effort) {
@@ -395,6 +440,7 @@ void GlobalPlacerParameters::check() const {
   roughLegalization.check();
   continuousModel.check();
   penalty.check();
+  densification.check();
   if (maxNbSteps < 0) {
     throw std::runtime_error("Invalid number of steps");
   }

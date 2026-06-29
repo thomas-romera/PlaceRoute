@@ -110,6 +110,28 @@ enum class NetModelOption {
 };
 
 /**
+ * @brief Strategy used to artificially inflate cells during global placement so
+ * the density legalizer leaves extra whitespace between them (de-densification,
+ * to help routing). The true cell sizes are always restored before export.
+ */
+enum class DensificationMode {
+  /**
+   * @brief No de-densification (default; behaviour unchanged)
+   */
+  Disabled,
+  /**
+   * @brief Inflate every movable cell by the same factor, ramped up over the
+   * iterations and capped to remain feasible
+   */
+  Uniform,
+  /**
+   * @brief Inflate cells more strongly where the wirelength placement is locally
+   * crowded (a placement-density congestion proxy)
+   */
+  Targeted
+};
+
+/**
  * @brief Orientation of a cell
  */
 enum class CellOrientation {
@@ -405,6 +427,55 @@ struct ContinuousModelParameters {
 };
 
 /**
+ * @brief Parameters controlling de-densification (artificial cell inflation
+ * during global placement to open routing whitespace)
+ */
+struct DensificationParameters {
+  /**
+   * @brief Which de-densification strategy to apply (Disabled by default)
+   */
+  DensificationMode mode;
+
+  /**
+   * @brief Target effective placement density the uniform strategy inflates
+   * toward, between 0 and 1. The actual factor is capped to remain feasible.
+   */
+  double targetDensity;
+
+  /**
+   * @brief Hard cap on the inflation factor applied to any single cell
+   */
+  double maxFactor;
+
+  /**
+   * @brief Number of global-placement steps over which the inflation factor is
+   * ramped from 1 up to its target (a gentle ramp avoids disrupting placement)
+   */
+  int nbRampSteps;
+
+  /**
+   * @brief For the targeted strategy, how strongly local over-density maps to
+   * inflation: factor = 1 + strength * (localDensity/avgDensity - 1)
+   */
+  double targetedStrength;
+
+  /**
+   * @brief Initialize the parameters
+   */
+  explicit DensificationParameters(int effort);
+
+  /**
+   * @brief Obtain a string representation
+   */
+  std::string toString() const;
+
+  /**
+   * @brief Check that the parameters make sense
+   */
+  void check() const;
+};
+
+/**
  * @brief Parameters for the global placer
  */
 struct GlobalPlacerParameters {
@@ -468,6 +539,12 @@ struct GlobalPlacerParameters {
    * @brief Parameters for the legalization penalty
    */
   PenaltyParameters penalty;
+
+  /**
+   * @brief Parameters for de-densification (cell inflation to open routing
+   * whitespace)
+   */
+  DensificationParameters densification;
 
   /**
    * @brief Noise introduced to randomize the algorithm. Note that 0 will erase

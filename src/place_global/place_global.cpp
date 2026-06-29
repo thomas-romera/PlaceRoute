@@ -88,6 +88,22 @@ GlobalPlacer::GlobalPlacer(Circuit &circuit, const ColoquinteParameters &params)
     legParams.quadraticPenaltyFactor = rlp.quadraticPenalty / dist;
   }
   leg_.setParams(legParams);
+  initDensification();
+}
+
+void GlobalPlacer::initDensification() {
+  // Capture the true widths so every step's inflation is computed from the
+  // baseline (never compounding), and the real sizes can be restored at export.
+  baseCellWidth_ = circuit_.cellWidth();
+  densificationActive_ = false;
+  long long movableArea = 0;
+  for (int i = 0; i < circuit_.nbCells(); ++i) {
+    if (!circuit_.isFixed(i)) {
+      movableArea += circuit_.area(i);
+    }
+  }
+  long long capacity = leg_.totalCapacity();
+  baseDensity_ = capacity > 0 ? (double)movableArea / (double)capacity : 1.0;
 }
 
 void GlobalPlacer::exportPlacement(Circuit &circuit) const {
@@ -194,6 +210,9 @@ void GlobalPlacer::run() {
         params_.global.continuousModel.approximationDistanceUpdateFactor;
   }
   runUB();
+  // De-densification only ever changes how cells were spread; the exported
+  // placement (and everything downstream) must use the true cell sizes.
+  restoreBaseWidths();
 }
 
 float GlobalPlacer::valueLB() const {
@@ -268,6 +287,7 @@ void GlobalPlacer::runUB() {
   xPlacementUB_ = leg_.spreadCoordX(xTarget);
   yPlacementUB_ = leg_.spreadCoordY(yTarget);
   callback(PlacementStep::UpperBound, xPlacementUB_, yPlacementUB_);
+  applyDensification();
 }
 
 void GlobalPlacer::callback(PlacementStep step,
@@ -312,6 +332,104 @@ void GlobalPlacer::updateNets() {
     xtopo_ = NetModel::xTopology(circuit_);
     ytopo_ = NetModel::yTopology(circuit_);
     circuit_.hasNetUpdate_ = false;
+  }
+}
+
+void GlobalPlacer::applyDensification() {
+  const DensificationParameters &dp = params_.global.densification;
+  if (dp.mode == DensificationMode::Disabled) {
+    return;
+  }
+  // Ramp the effect in gently over the first nbRampSteps iterations.
+  float ramp = std::min(1.0f, (float)step_ / (float)dp.nbRampSteps);
+
+  std::vector<float> factor = dp.mode == DensificationMode::Targeted
+                                  ? targetedExpansion(ramp)
+                                  : uniformExpansion(ramp);
+
+  // Recompute widths from the baseline so factors never compound across steps.
+  std::vector<int> widths = baseCellWidth_;
+  for (int i = 0; i < circuit_.nbCells(); ++i) {
+    if (circuit_.isFixed(i)) {
+      continue;
+    }
+    int w = (int)std::lround(baseCellWidth_[i] * factor[i]);
+    widths[i] = std::max(baseCellWidth_[i], w);
+  }
+  circuit_.setCellWidth(widths);  // trips hasCellSizeUpdate_ for the next UB
+  densificationActive_ = true;
+}
+
+std::vector<float> GlobalPlacer::uniformExpansion(float ramp) const {
+  const DensificationParameters &dp = params_.global.densification;
+  // Largest factor that keeps total area under the target density, then cap.
+  double feasible =
+      baseDensity_ > 1e-9 ? dp.targetDensity / baseDensity_ : dp.maxFactor;
+  double targetF = std::max(1.0, std::min(dp.maxFactor, feasible));
+  float f = 1.0f + (float)(targetF - 1.0) * ramp;
+  return std::vector<float>(circuit_.nbCells(), f);
+}
+
+std::vector<float> GlobalPlacer::targetedExpansion(float ramp) const {
+  const DensificationParameters &dp = params_.global.densification;
+  int n = circuit_.nbCells();
+  std::vector<float> factor(n, 1.0f);
+  if (baseDensity_ <= 1e-9) {
+    return factor;
+  }
+
+  // Build a coarse density grid over the lower-bound (wirelength) placement,
+  // where cells pile up: this is the congestion the router will fight.
+  Rectangle area = leg_.placementArea();
+  float w = (float)area.width();
+  float h = (float)area.height();
+  if (w <= 0.0f || h <= 0.0f) {
+    return factor;
+  }
+  float binLen = std::max(1.0f, 4.0f * averageCellLength_);
+  int nbx = std::min(64, std::max(1, (int)(w / binLen)));
+  int nby = std::min(64, std::max(1, (int)(h / binLen)));
+  float bw = w / nbx;
+  float bh = h / nby;
+
+  auto binIndex = [&](float pos, float lo, float sz, int nb) {
+    int idx = (int)((pos - lo) / sz);
+    return std::min(nb - 1, std::max(0, idx));
+  };
+
+  // Accumulate (true) cell area into the bin of each cell's LB position.
+  std::vector<double> usage((size_t)nbx * nby, 0.0);
+  std::vector<int> cellBin(n, -1);
+  for (int i = 0; i < n; ++i) {
+    if (circuit_.isFixed(i)) {
+      continue;
+    }
+    int bx = binIndex(xPlacementLB_[i], area.minX, bw, nbx);
+    int by = binIndex(yPlacementLB_[i], area.minY, bh, nby);
+    int b = by * nbx + bx;
+    cellBin[i] = b;
+    usage[b] += (double)circuit_.area(i);
+  }
+
+  double binArea = (double)bw * (double)bh;
+  for (int i = 0; i < n; ++i) {
+    if (cellBin[i] < 0) {
+      continue;
+    }
+    double localDensity = usage[cellBin[i]] / binArea;
+    // How many times above the average density this region sits.
+    double ratio = localDensity / baseDensity_;
+    double over = std::max(0.0, ratio - 1.0);
+    double f = 1.0 + dp.targetedStrength * over * ramp;
+    factor[i] = (float)std::max(1.0, std::min((double)dp.maxFactor, f));
+  }
+  return factor;
+}
+
+void GlobalPlacer::restoreBaseWidths() {
+  if (densificationActive_) {
+    circuit_.setCellWidth(baseCellWidth_);
+    densificationActive_ = false;
   }
 }
 }  // namespace coloquinte
