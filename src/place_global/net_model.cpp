@@ -5,7 +5,14 @@
 #include <eigen3/Eigen/Sparse>
 #include <limits>
 
+#include <atomic>
+#include <cstdlib>
+#include <fstream>
+
 namespace coloquinte {
+// --- instrumentation: dump every solved linear system when COLO_DUMP is set ---
+static std::atomic<int> g_dumpSeq{0};
+
 NetModel::Parameters::Parameters() {
   netModel = NetModelOption::BoundToBound;
   approximationDistance = 10.0;
@@ -612,6 +619,24 @@ std::vector<float> MatrixCreator::solve(float tolerance, int maxIterations) {
   std::vector<float> ret;
   ret.resize(matSize());
   Eigen::Matrix<float, -1, 1>::Map(ret.data(), ret.size()) = res;
+  // --- instrumentation: dump the dense system A x = b and solution x ---
+  if (const char *dir = std::getenv("COLO_DUMP")) {
+    int n = matSize();
+    Eigen::MatrixXf A = Eigen::MatrixXf(mat);  // densify (systems are tiny here)
+    std::ofstream os(std::string(dir) + "/matrices.txt", std::ios::app);
+    os << "=== SOLVE seq=" << g_dumpSeq++ << " label=" << g_dumpLabel
+       << " size=" << n << " nbCells=" << nbCells_ << " nbSupps=" << nbSupps_
+       << " ===\n";
+    os << "A=\n";
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) os << A(i, j) << (j + 1 < n ? "\t" : "\n");
+    }
+    os << "b=";
+    for (int i = 0; i < n; ++i) os << "\t" << rhs_[i];
+    os << "\nx=";
+    for (int i = 0; i < n; ++i) os << "\t" << res[i];
+    os << "\n\n";
+  }
   ret.resize(nbCells_);
   return ret;
 }

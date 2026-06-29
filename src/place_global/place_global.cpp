@@ -3,6 +3,8 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <fstream>
 #include <future>
 #include <iomanip>
 #include <iostream>
@@ -209,7 +211,9 @@ void GlobalPlacer::runInitialLB() {
       params_.global.continuousModel.conjugateGradientErrorTolerance;
   params.maxNbIterations =
       params_.global.continuousModel.maxNbConjugateGradientSteps;
+  g_dumpLabel = "step0-initLB-x";
   xPlacementLB_ = xtopo_.solveStar(params);
+  g_dumpLabel = "step0-initLB-y";
   yPlacementLB_ = ytopo_.solveStar(params);
   std::cout << std::defaultfloat << std::setprecision(4) << "#0:\tLB "
             << valueLB() << std::endl;
@@ -244,15 +248,12 @@ void GlobalPlacer::runLB() {
   std::vector<float> xTarget = blendPlacement(xPlacementLB_, xPlacementUB_, w);
   std::vector<float> yTarget = blendPlacement(yPlacementLB_, yPlacementUB_, w);
 
-  // Solve the continuous model (x and y independently)
-  std::future<std::vector<float> > x =
-      std::async(std::launch::async, &NetModel::solveWithPenalty, &xtopo_,
-                 xPlacementLB_, xTarget, penalty, params);
-  std::future<std::vector<float> > y =
-      std::async(std::launch::async, &NetModel::solveWithPenalty, &ytopo_,
-                 yPlacementLB_, yTarget, penalty, params);
-  xPlacementLB_ = x.get();
-  yPlacementLB_ = y.get();
+  // Solve the continuous model (x and y independently).
+  // Sequential (not async) so the dumped matrices are cleanly ordered.
+  g_dumpLabel = "step" + std::to_string(step_) + "-LB-x";
+  xPlacementLB_ = xtopo_.solveWithPenalty(xPlacementLB_, xTarget, penalty, params);
+  g_dumpLabel = "step" + std::to_string(step_) + "-LB-y";
+  yPlacementLB_ = ytopo_.solveWithPenalty(yPlacementLB_, yTarget, penalty, params);
   callback(PlacementStep::LowerBound, xPlacementLB_, yPlacementLB_);
 }
 
@@ -272,6 +273,26 @@ void GlobalPlacer::runUB() {
 void GlobalPlacer::callback(PlacementStep step,
                             const std::vector<float> &xplace,
                             const std::vector<float> &yplace) {
+  // --- instrumentation: append current coordinates to a CSV per step ---
+  if (const char *dir = std::getenv("COLO_DUMP")) {
+    static int coordSeq = 0;
+    const char *name = step == PlacementStep::LowerBound ? "LB"
+                       : step == PlacementStep::UpperBound ? "UB"
+                       : step == PlacementStep::PenaltyUpdate ? "PEN"
+                       : "DET";
+    std::string path = std::string(dir) + "/coords.csv";
+    bool header = (coordSeq == 0);
+    std::ofstream os(path, std::ios::app);
+    if (header) {
+      os << "seq,step,type";
+      for (int i = 0; i < (int)xplace.size(); ++i) os << ",x" << i << ",y" << i;
+      os << "\n";
+    }
+    os << coordSeq++ << "," << step_ << "," << name;
+    for (int i = 0; i < (int)xplace.size(); ++i)
+      os << "," << xplace[i] << "," << yplace[i];
+    os << "\n";
+  }
   if (!callback_.has_value()) return;
   exportPlacement(circuit_, xplace, yplace);
   callback_.value()(step);

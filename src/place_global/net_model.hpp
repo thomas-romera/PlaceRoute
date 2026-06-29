@@ -2,8 +2,11 @@
 
 #include <cassert>
 #include <vector>
+#include <string>
 
 #include "coloquinte.hpp"
+
+inline std::string g_dumpLabel = "";
 
 namespace coloquinte {
 /**
