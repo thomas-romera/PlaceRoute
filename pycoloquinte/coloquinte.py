@@ -904,6 +904,11 @@ def main():
         print("Detailed placement skipped at user's request")
     else:
         circuit.place_detailed(params, callback)
+    # If de-densification kept the cells inflated through legalization and
+    # detailed placement, shrink them back to their true size now that the
+    # whitespace has been baked into the legal placement.
+    if getattr(params, "global").densification.keep_through_detailed:
+        circuit.restore_true_widths()
     circuit.write_placement(args.save_solution)
 
     if args.save_images is not None:

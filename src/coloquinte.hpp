@@ -460,6 +460,15 @@ struct DensificationParameters {
   double targetedStrength;
 
   /**
+   * @brief Keep the cells inflated when global placement finishes, so that
+   * legalization and detailed placement also see the larger footprints and
+   * preserve the whitespace. When false, the true widths are restored
+   * as soon as global placement ends, so only the global placement is affected.
+   * When true (default), call Circuit::restoreTrueWidths() after detailed placement.
+   */
+  bool keepThroughDetailed;
+
+  /**
    * @brief Initialize the parameters
    */
   explicit DensificationParameters(int effort);
@@ -852,6 +861,20 @@ class Circuit {
   void setCellHeight(const std::vector<int> &heights);
 
   /**
+   * @brief Save the current cell widths so they can be restored after
+   * de-densification has inflated them (used when the inflation is kept through
+   * legalization and detailed placement)
+   */
+  void backupWidthsForDensification() { trueWidthBackup_ = cellWidth_; }
+
+  /**
+   * @brief Restore the true cell widths saved before de-densification. Call
+   * this after detailed placement when densification.keepThroughDetailed is set.
+   * No-op if no backup was taken.
+   */
+  void restoreTrueWidths();
+
+  /**
    * @brief Get the orientation for all cells
    */
   const std::vector<CellOrientation> &cellOrientation() const {
@@ -1204,6 +1227,7 @@ class Circuit {
   std::vector<int> pinYOffsets_;
   std::vector<int> cellWidth_;
   std::vector<int> cellHeight_;
+  std::vector<int> trueWidthBackup_;
   std::vector<bool> cellIsFixed_;
   std::vector<bool> cellIsObstruction_;
   std::vector<CellRowPolarity> cellRowPolarity_;

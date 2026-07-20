@@ -1,5 +1,6 @@
 #include "place_global.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -96,6 +97,11 @@ void GlobalPlacer::initDensification() {
   // baseline (never compounding), and the real sizes can be restored at export.
   baseCellWidth_ = circuit_.cellWidth();
   densificationActive_ = false;
+    if (params_.global.densification.mode != DensificationMode::Disabled) {
+    // Also keep a copy on the circuit so it survives past this placer object,
+    // in case the inflation is kept through legalization and detailed placement.
+    circuit_.backupWidthsForDensification();
+  }
   long long movableArea = 0;
   for (int i = 0; i < circuit_.nbCells(); ++i) {
     if (!circuit_.isFixed(i)) {
@@ -210,9 +216,15 @@ void GlobalPlacer::run() {
         params_.global.continuousModel.approximationDistanceUpdateFactor;
   }
   runUB();
-  // De-densification only ever changes how cells were spread; the exported
-  // placement (and everything downstream) must use the true cell sizes.
-  restoreBaseWidths();
+  // De-densification only ever changes how cells were spread.
+  // When keepThroughDetailed is set, we deliberately leave 
+  // the cells inflated so that legalization and detailed 
+  // placement preserve the whitespace; the caller then 
+  // restores the true widths via Circuit::restoreTrueWidths()
+  // after detailed placement.
+  if (!params_.global.densification.keepThroughDetailed) {
+    restoreBaseWidths();
+  }
 }
 
 float GlobalPlacer::valueLB() const {

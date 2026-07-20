@@ -195,6 +195,8 @@ Construct the parameters
       .def_readwrite("nb_ramp_steps", &DensificationParameters::nbRampSteps)
       .def_readwrite("targeted_strength",
                      &DensificationParameters::targetedStrength)
+      .def_readwrite("keep_through_detailed",
+                     &DensificationParameters::keepThroughDetailed)
       .def("check", &DensificationParameters::check)
       .def("__str__", &DensificationParameters::toString)
       .def("__repr__", &DensificationParameters::toString);
@@ -330,6 +332,10 @@ Construct a circuit.
             circuit.legalize(params, std::move(callback));
           },
           "Run the detailed placement algorithm")
+      .def("restore_true_widths", &Circuit::restoreTrueWidths,
+           "Restore the true cell widths saved before de-densification "
+           "inflated them. Call after detailed placement when "
+           "densification.keep_through_detailed is set.")
       .def(
           "place_detailed",
           [](Circuit &circuit, const ColoquinteParameters &params,

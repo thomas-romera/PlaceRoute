@@ -277,6 +277,7 @@ DensificationParameters::DensificationParameters(
   maxFactor = 2.0;
   nbRampSteps = 10;
   targetedStrength = 1.0;
+  keepThroughDetailed = true;
 }
 
 std::string DensificationParameters::toString() const {
@@ -289,7 +290,8 @@ std::string DensificationParameters::toString() const {
      << "\n\tTarget density: " << targetDensity
      << "\n\tMax factor: " << maxFactor
      << "\n\tRamp steps: " << nbRampSteps
-     << "\n\tTargeted strength: " << targetedStrength;
+     << "\n\tTargeted strength: " << targetedStrength
+     << "\n\tKeep through detailed: " << keepThroughDetailed;
   ss << std::endl;
   return ss.str();
 }

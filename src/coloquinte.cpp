@@ -164,6 +164,14 @@ void Circuit::setCellHeight(const std::vector<int> &heights) {
   cellHeight_ = heights;
 }
 
+void Circuit::restoreTrueWidths() {
+  if (!trueWidthBackup_.empty()) {
+    cellWidth_ = trueWidthBackup_;
+    trueWidthBackup_.clear();
+    hasCellSizeUpdate_ = true;
+  }
+}
+
 void Circuit::setSolution(const PlacementSolution &sol) {
   if ((int)sol.size() != nbCells()) {
     throw std::runtime_error(

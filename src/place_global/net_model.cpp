@@ -622,20 +622,33 @@ std::vector<float> MatrixCreator::solve(float tolerance, int maxIterations) {
   // --- instrumentation: dump the dense system A x = b and solution x ---
   if (const char *dir = std::getenv("COLO_DUMP")) {
     int n = matSize();
-    Eigen::MatrixXf A = Eigen::MatrixXf(mat);  // densify (systems are tiny here)
-    std::ofstream os(std::string(dir) + "/matrices.txt", std::ios::app);
-    os << "=== SOLVE seq=" << g_dumpSeq++ << " label=" << g_dumpLabel
-       << " size=" << n << " nbCells=" << nbCells_ << " nbSupps=" << nbSupps_
-       << " ===\n";
-    os << "A=\n";
-    for (int i = 0; i < n; ++i) {
-      for (int j = 0; j < n; ++j) os << A(i, j) << (j + 1 < n ? "\t" : "\n");
+    // Skip large systems instead of crashing with bad_alloc.
+    // Override the limit with COLO_DUMP_MAX.
+    int dumpMax = 4096;
+    if (const char *lim = std::getenv("COLO_DUMP_MAX")) dumpMax = std::atoi(lim);
+    if (n > dumpMax) {
+      static std::atomic<bool> warned{false};
+      if (!warned.exchange(true)) {
+        std::ofstream os(std::string(dir) + "/matrices.txt", std::ios::app);
+        os << "=== SOLVE skipped: size=" << n << " exceeds COLO_DUMP_MAX="
+           << dumpMax << " ===\n\n";
+      }
+    } else {
+      Eigen::MatrixXf A = Eigen::MatrixXf(mat);  // densify (small systems only)
+      std::ofstream os(std::string(dir) + "/matrices.txt", std::ios::app);
+      os << "=== SOLVE seq=" << g_dumpSeq++ << " label=" << g_dumpLabel
+         << " size=" << n << " nbCells=" << nbCells_ << " nbSupps=" << nbSupps_
+         << " ===\n";
+      os << "A=\n";
+      for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) os << A(i, j) << (j + 1 < n ? "\t" : "\n");
+      }
+      os << "b=";
+      for (int i = 0; i < n; ++i) os << "\t" << rhs_[i];
+      os << "\nx=";
+      for (int i = 0; i < n; ++i) os << "\t" << res[i];
+      os << "\n\n";
     }
-    os << "b=";
-    for (int i = 0; i < n; ++i) os << "\t" << rhs_[i];
-    os << "\nx=";
-    for (int i = 0; i < n; ++i) os << "\t" << res[i];
-    os << "\n\n";
   }
   ret.resize(nbCells_);
   return ret;
